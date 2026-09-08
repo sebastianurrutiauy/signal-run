@@ -1,4 +1,4 @@
-extends Node2D
+extends Node2D 
 
 const ARENA := Rect2(48, 92, 864, 388)
 const PLAYER_RADIUS := 16.0
