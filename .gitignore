@@ -1,7 +1,8 @@
 .godot/
 .import/
 *.tmp
-*.import
+# Keep asset-side .import files: they contain shared import settings.
+*.translation
 export/
 .DS_Store
 Thumbs.db

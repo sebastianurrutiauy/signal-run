@@ -1,21 +1,34 @@
-extends Node2D 
+extends Node2D
 
 const ARENA := Rect2(48, 92, 864, 388)
 const PLAYER_RADIUS := 16.0
 const ENEMY_RADIUS := 18.0
 const PLAYER_SPEED := 280.0
 const ENEMY_SPEED := 92.0
-const GOAL_COUNT := 5
+const GOAL_RADIUS := 13.0
+const PICKUP_FEEDBACK_DURATION := 0.7
+const INITIAL_ENEMIES: Array[Vector2] = [
+	Vector2(170, 165), Vector2(750, 170), Vector2(210, 395),
+]
+const INITIAL_GOALS: Array[Vector2] = [
+	Vector2(145, 280), Vector2(330, 150), Vector2(520, 390),
+	Vector2(720, 285), Vector2(830, 420),
+]
 
-var player := Vector2(ARENA.get_center())
-var enemies: Array[Vector2] = [Vector2(170, 165), Vector2(750, 170), Vector2(210, 395)]
-var goals: Array[Vector2] = [Vector2(145, 280), Vector2(330, 150), Vector2(520, 390), Vector2(720, 285), Vector2(830, 420)]
+var player := ARENA.get_center()
+# Copy the arrays so each scene instance owns its mutable match state.
+var enemies: Array[Vector2] = INITIAL_ENEMIES.duplicate()
+var goals: Array[Vector2] = INITIAL_GOALS.duplicate()
 var collected := 0
 var state := "playing"
 
 var _previous_player := player
 var _previous_enemies: Array[Vector2] = enemies.duplicate()
 var _background: Node2D
+var _pickup_feedback_left := 0.0
+var _mission_hint := "Recuperá las cinco señales. Evitá los rastreadores."
+var _hint_color := Color("a8b4a8")
+var _counter_color := Color("28332c")
 
 func _ready() -> void:
 	# Godot retains these drawing commands until this canvas is invalidated.
@@ -26,8 +39,12 @@ func _ready() -> void:
 	_background.queue_redraw()
 	queue_redraw()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if state == "playing":
+		if _pickup_feedback_left > 0.0:
+			_pickup_feedback_left = maxf(0.0, _pickup_feedback_left - delta)
+			if _pickup_feedback_left == 0.0:
+				_update_mission_feedback()
 		queue_redraw()
 
 func _physics_process(delta: float) -> void:
@@ -51,22 +68,37 @@ func _physics_process(delta: float) -> void:
 			return
 
 	for index in range(goals.size() - 1, -1, -1):
-		if goals[index].distance_to(player) <= PLAYER_RADIUS + 13.0:
+		if goals[index].distance_to(player) <= PLAYER_RADIUS + GOAL_RADIUS:
 			goals.remove_at(index)
 			collected += 1
-			if collected == GOAL_COUNT:
+			_pickup_feedback_left = PICKUP_FEEDBACK_DURATION
+			_update_mission_feedback()
+			if collected == INITIAL_GOALS.size():
 				state = "won"
 	queue_redraw()
 
 func restart() -> void:
 	player = ARENA.get_center()
-	enemies = [Vector2(170, 165), Vector2(750, 170), Vector2(210, 395)]
-	goals = [Vector2(145, 280), Vector2(330, 150), Vector2(520, 390), Vector2(720, 285), Vector2(830, 420)]
+	enemies = INITIAL_ENEMIES.duplicate()
+	goals = INITIAL_GOALS.duplicate()
 	collected = 0
 	state = "playing"
+	_pickup_feedback_left = 0.0
+	_update_mission_feedback()
 	_previous_player = player
 	_previous_enemies.assign(enemies)
 	queue_redraw()
+
+func _update_mission_feedback() -> void:
+	# Cache display values when feedback changes, rather than on every draw.
+	var active := _pickup_feedback_left > 0.0
+	_mission_hint = "Recuperá las cinco señales. Evitá los rastreadores."
+	if active:
+		_mission_hint = "Señal recuperada. ¡Seguí moviéndote!"
+	elif goals.size() == 1:
+		_mission_hint = "¡Una señal más! Buscá el último transmisor."
+	_hint_color = Color("ffe3a0") if active else Color("a8b4a8")
+	_counter_color = Color("655637") if active else Color("28332c")
 
 func _draw_background() -> void:
 	_background.draw_rect(Rect2(0, 0, 960, 540), Color("111819"))
@@ -115,9 +147,10 @@ func _draw() -> void:
 	var blend := Engine.get_physics_interpolation_fraction() if state == "playing" else 1.0
 	var render_player := _previous_player.lerp(player, blend)
 	var pulse := 0.8 + sin(Time.get_ticks_msec() * 0.004) * 0.2
+	var last_signal := goals.size() == 1
 	for goal in goals:
 		_shadow(goal, 15)
-		_glow(goal, 28, Color(0.96, 0.70, 0.24, 0.025 * pulse))
+		_glow(goal, 28, Color(0.96, 0.70, 0.24, (0.05 if last_signal else 0.025) * pulse))
 		draw_rect(Rect2(goal + Vector2(-11, -12), Vector2(22, 26)), Color("111916"))
 		draw_rect(Rect2(goal + Vector2(-10, -13), Vector2(20, 23)), Color("8b8873"))
 		draw_rect(Rect2(goal + Vector2(-8, -11), Vector2(16, 19)), Color("35423c"))
@@ -164,9 +197,9 @@ func _draw() -> void:
 	draw_rect(Rect2(32, 23, 3, 28), Color("c5b784"))
 	draw_string(ThemeDB.fallback_font, Vector2(48, 43), "SIGNAL RUN", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color("e2e4dc"))
 	draw_string(ThemeDB.fallback_font, Vector2(260, 32), "OPERACIÓN / SECTOR 07", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("b6aa84"))
-	draw_string(ThemeDB.fallback_font, Vector2(260, 51), "Recuperá las cinco señales. Evitá los rastreadores.", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("a8b4a8"))
-	draw_rect(Rect2(754, 17, 174, 40), Color("28332c"))
-	draw_string(ThemeDB.fallback_font, Vector2(770, 44), "%02d / 05" % collected, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("e0d4ac"))
+	draw_string(ThemeDB.fallback_font, Vector2(260, 51), _mission_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, _hint_color)
+	draw_rect(Rect2(754, 17, 174, 40), _counter_color)
+	draw_string(ThemeDB.fallback_font, Vector2(770, 44), "%02d / %02d" % [collected, INITIAL_GOALS.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("e0d4ac"))
 	draw_string(ThemeDB.fallback_font, Vector2(852, 41), "SEÑALES", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("afbaab"))
 	draw_string(ThemeDB.fallback_font, Vector2(48, 520), "WASD / FLECHAS   Mover", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("a5b0aa"))
 	draw_string(ThemeDB.fallback_font, Vector2(701, 520), "R   Reiniciar al terminar", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("a5b0aa"))
@@ -178,15 +211,15 @@ func _draw() -> void:
 		draw_rect(Rect2(224, 181, 4, 180), accent)
 		draw_string(ThemeDB.fallback_font, Vector2(256, 216), "INFORME DE OPERACIÓN", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("a2aba3"))
 		draw_string(ThemeDB.fallback_font, Vector2(256, 260), "SEÑAL ASEGURADA" if state == "won" else "TE DETECTARON", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, accent)
-		draw_string(ThemeDB.fallback_font, Vector2(256, 298), "Señales recuperadas: %d / 5" % collected, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("c1c9bf"))
+		draw_string(ThemeDB.fallback_font, Vector2(256, 298), "Señales recuperadas: %d / %d" % [collected, INITIAL_GOALS.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("c1c9bf"))
 		draw_string(ThemeDB.fallback_font, Vector2(256, 333), "Pulsá R para volver a intentarlo", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("a2aba3"))
 
-func _shadow(position: Vector2, radius: float) -> void:
-	draw_set_transform(position + Vector2(5, 8), 0, Vector2(1, 0.65))
+func _shadow(center: Vector2, radius: float) -> void:
+	draw_set_transform(center + Vector2(5, 8), 0, Vector2(1, 0.65))
 	for layer in range(4, 0, -1):
 		draw_circle(Vector2.ZERO, radius + layer * 2, Color(0.015, 0.025, 0.02, 0.10))
 	draw_set_transform(Vector2.ZERO)
 
-func _glow(position: Vector2, radius: float, color: Color, canvas: CanvasItem = self) -> void:
+func _glow(center: Vector2, radius: float, color: Color, canvas: CanvasItem = self) -> void:
 	for layer in range(8, 0, -1):
-		canvas.draw_circle(position, radius * float(layer) / 8, color)
+		canvas.draw_circle(center, radius * float(layer) / 8, color)

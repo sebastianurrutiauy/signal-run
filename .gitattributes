@@ -1,0 +1,2 @@
+# Keep text line endings consistent between Godot and Git on Windows.
+* text=auto eol=lf
